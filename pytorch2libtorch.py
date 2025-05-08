@@ -1,140 +1,27 @@
 import torch
 import torch.nn as nn
-import torch.optim as optimizers
-from torchvision import transforms
-from torch.utils.data import DataLoader
-import torch.backends.cudnn as cudnn
-from loss import loss
 from model import PConvNet
-from dataset import Places2
-import argparse,os,time
-import matplotlib.pyplot as plt
-from evaluate import validate
-import numpy as np
 
-torch.cuda.empty_cache()
+torch._C._jit_set_profiling_mode(False)
+torch._C._jit_set_profiling_executor(False)
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--batch_size',type=int,default=8)
-parser.add_argument('--epochs',type=int,default=100)
-parser.add_argument('--lr',type=float,default=0.0002)
-parser.add_argument('--img_h',type=int,default=256)
-parser.add_argument('--img_w',type=int,default=256)
-parser.add_argument('--weights_root',type=str,default='./weights/')
-parser.add_argument('--output_root',type=str,default='./output/')
-parser.add_argument('--val_root',type=str,default='/val/')
-parser.add_argument('--loss_root',type=str,default='/loss/')
-parser.add_argument('--cuda',type=bool,default=True)
-parser.add_argument('--ngpu',type=int,default=1)
-parser.add_argument('--beta1',type=float,default=0.5,help='优化器第一个参数')
-parser.add_argument('--save_interval',type=int,default=2000)
-parser.add_argument('--pretrained',type=bool,default=True)
-opt = parser.parse_args()
+pconvnet = PConvNet().cuda()
+state_dict = torch.load('./weights/checkpoint_mask_lightest_16.8.pth')
+new_state_dict = {}
+for k in state_dict.keys():
+    new_k = k[7:]
+    new_state_dict[new_k] = state_dict[k]
+pconvnet.load_state_dict(new_state_dict,strict=True)
+pconvnet.eval()
 
-cudnn.benchmark = True
+x = torch.rand(1,3,256,256).cuda()
+mask = torch.rand(1,3,256,256).cuda()
+with torch.jit.optimized_execution(True):
+    traced_model = torch.jit.trace(pconvnet,(x,mask))
+    traced_model.save('./libtorch model/partialconv.pt')
+y = traced_model(pconvnet,(torch.rand(1,3,256,256).cuda(),torch.rand(1,3,256,256).cuda()))
+print(y)
 
-if not os.path.exists(opt.weights_root):
-    os.mkdir(opt.weights_root)
-if not os.path.exists(opt.output_root):
-    os.mkdir(opt.output_root)
-
-img_mean = np.array([0.485,0.456,0.406])
-img_std = np.array([0.229,0.224,0.225])
-
-img_transform = transforms.Compose([
-        transforms.Resize((opt.img_h,opt.img_w)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=img_mean,std=img_std)
-    ])
-mask_transform = transforms.Compose([
-        transforms.Resize((opt.img_h,opt.img_w)),
-        transforms.ToTensor() # 归一化
-    ])
-
-train_loader = DataLoader(Places2(train=True,mask_dataset='mask_light',
-        img_transform=img_transform,mask_transform=mask_transform),
-    batch_size=opt.batch_size,shuffle=True,
-    sampler=None,drop_last=True)
-# val_loader = DataLoader(Places2(train=False,
-#     img_transform=img_transform,mask_transform=mask_transform),
-#     batch_size=opt.batch_size,shuffle=True,drop_last=True)
-
-pconvnet = PConvNet()
-if opt.pretrained:
-    state_dict = torch.load('./weights/checkpoint_mask_light_23.55.pth')
-    new_state_dict = {}
-    for k in state_dict.keys():
-        new_k = k[7:]
-        new_state_dict[new_k] = state_dict[k]
-    pconvnet.load_state_dict(new_state_dict)
-
-optimizer = optimizers.Adam(filter(lambda p:p.requires_grad,pconvnet.parameters()),
-    lr=opt.lr,betas=(opt.beta1,0.999))
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,mode='min',factor=0.99,
-    patience=2,verbose=False,threshold=0.00001,min_lr=5e-5,eps=1e-6)
-# mode='min'是metric不再减小的时候更新
-
-if opt.cuda:
-    pconvnet = pconvnet.cuda()
-    pconvnet = nn.DataParallel(pconvnet,device_ids=range(opt.ngpu))
-
-def train():
-    loss_log = []
-    pconvnet.train()
-    elapsed_time_start = 0
-    elapsed_time = 0
-    for epoch in range(opt.epochs):
-        epoch_loss = 0.0
-        elapsed_time_start = time.time()
-        for i,(mask_img,mask,y_true) in enumerate(train_loader):
-            mask_img = mask_img.cuda()
-            mask = mask.cuda()
-            y_true = y_true.cuda()
-            y_pred = pconvnet(mask_img,mask)
-            # loss_dict = criterion(mask_img,mask,y_pred,y_true)
-            # cur_loss = 0.0
-            # for key, coef in LAMBDA_DICT.items():
-            #     value = coef * loss_dict[key]
-            #     cur_loss += value
-            cur_loss = loss(mask_img,y_true,y_pred,mask)
-            epoch_loss += cur_loss.item()
-            optimizer.zero_grad()
-            cur_loss.backward()
-            optimizer.step()
-            if i % 100 == 0:
-                elapsed_time = time.time() - elapsed_time_start
-                print(f'epoch: {epoch}/{opt.epochs} step: {i}/{len(train_loader)} '
-                     f'loss: {cur_loss:4f} elapsed_time: {elapsed_time:4f}')
-                elapsed_time_start = time.time()
-            if i % 500 == 0:
-                loss_log.append(cur_loss.item())
-            if i % opt.save_interval == 0 and i != 0:
-                save_weights((i + 1) // opt.save_interval)
-                val_loss = validate(pconvnet,opt.output_root + opt.val_root + \
-                    f'val_{epoch}_{(i + 1) // opt.save_interval}.png')
-                scheduler.step(val_loss)
-                #print(optimizer.param_groups[0]['lr'])
-                plot_loss(loss_log,epoch,(i + 1) // opt.save_interval)
-        epoch_loss /= len(train_loader)
-        print(f'epoch: {epoch}/{opt.epochs} epoch_loss: {epoch_loss}')
-    
-def plot_loss(loss_log,epoch,step):
-    plt.plot(range(1,len(loss_log) + 1),loss_log,color='darkorange',label='loss curve')
-    plt.xlabel('epoch')
-    plt.ylabel('loss value')
-    plt.title('loss log')
-    plt.legend()
-    plt.savefig(opt.output_root + opt.loss_root + f'/loss_curve_{epoch}_{step}.png',dpi=500)
-    #plt.show()
-
-def save_weights(step:int):
-    torch.save(pconvnet.state_dict(),opt.weights_root + f'checkpoint_{step}.pth')
-
-def main():
-    train()
-
-if __name__ == '__main__':
-    main()
 
 '''
 1. partial convolution在论文里面表现为将X乘一个mask，然后再乘个**mask里1的个数/mask的元素个数**做平均
@@ -267,29 +154,43 @@ if __name__ == '__main__':
 
     所以是将y_pred被mask遮掉意外的预测，设置到真实图片上，但是如果是255就会出问题，白色再乘上input的话就不对了
 
-45. 官方的vgg16 extractor是有做Normalize的，先normalize再进行分离
+45. 官方的vgg16 extractor是没有Normalization层的
 
-1. 0908看完了第一次论文
+# 46.大坑！
 
-2. 0909完成了Partial Convolution层以及测试
+生成mask那里，必须得是255的图像保存下来，不能是1的图像保存下来，因为之后ToTensor()那里会除以255，所以如果是全0和1的话，就会变成0.0039，到时候y_comp就会出问题，所以必须在这里变成255的先
 
-3. 0909写到contract部分结束
+因为y_comp = mask * y_true + (1 - mask) * y_pred，mask是0.0039，所以y_pred就会占很大的成分，导致y_comp看起来跟y_pred一样
 
-4. 0913测试了PConvNet
+所以必须在ToTensor之后相乘，不能之前相乘
 
-5. 0914实现了vgg16，参考的是torch官方代码
+47. torch可以ToPILImage()然后显示，ToTensor之后不能fromarray变成PIL图像
 
-6. 0914实现了所有loss，包括valid,hole,perceptual,style,tv
+48. PIL.Image.convert(‘1’)是变成二值图像，非黑即白，0~255，‘L’是灰度图，灰度按这个公式计算
 
-7. 0917完成了partial convolution层
+    ```python
+    L = R * 299/1000 + G * 587/1000+ B * 114/1000
+    ```
 
-8. 0919完成了mask的生成
+49. loss那里的feature_extraction将Normalization层去掉了，效果更好
 
-9. 0927改正了网络的结构，最后一层只有pconv
+50. batch_size是32好像效果没有8好
 
-10. 0928大改mask的生成
+51. libtorch加载模型，据说是1.1以下是：
 
-11. 0928修改了vgg16_bn为vgg16
+    ```c++
+    std::shared_ptr<torch::jit::script::Module> pconvnet = torch::jit::load("../model/partialconv.pt");
+    assert(pconvnet != nullptr);
+    pconvnet->to(at::kCUDA);
+    ```
+
+    1.2以上是：
+
+    ```c++
+    torch::jit::script::Module pconvnet = torch::jit::load("../model/partialconv.pt");
+    pconvnet.to(at::kCUDA);
+    ```
 
     
+
 '''

@@ -17,7 +17,8 @@ class Places2(Dataset):
             self.mask_dir = r'./data/mask_light/'
         elif mask_dataset == 'mask_lightest':
             self.mask_dir = r'./data/mask_lightest/'
-        self.imgs_dir = self.root_dir + 'train.txt' if train else self.root_dir + 'val.txt'
+        # self.imgs_dir = self.root_dir + 'train.txt' if train else self.root_dir + 'val.txt'
+        self.imgs_dir = self.root_dir + 'train.txt' if train else self.root_dir + 'val2.txt'
         self.img_height,self.img_width = (256,256)
         # 这两个文件里面有路径，其实就跟voc一样
 
@@ -26,6 +27,7 @@ class Places2(Dataset):
             self.imgs_path = [self.root_dir + i.strip() for i in self.imgs_path]
             #self.imgs_path = self.imgs_path[:100]
         self.masks_path = glob.glob(self.mask_dir + '*.png')
+        self.masks_path = sorted(self.masks_path)
 
         self.imgs_cnt = len(self.imgs_path)
         self.masks_cnt = len(self.masks_path)
@@ -37,9 +39,10 @@ class Places2(Dataset):
         return self.imgs_cnt
 
     def __getitem__(self,index):
-        img = Image.open(self.imgs_path[index % self.imgs_cnt]).convert('RGB') 
+        img = Image.open(self.imgs_path[index % self.imgs_cnt]).convert('RGB')
         # 模只是保险，其实不会超的
-        mask = Image.open(self.masks_path[np.random.randint(0,self.masks_cnt)]).convert('RGB')
+        #mask = Image.open(self.masks_path[np.random.randint(0,self.masks_cnt)]).convert('RGB')
+        mask = Image.open(self.masks_path[index % self.masks_cnt]).convert('RGB')
         #mask = Image.open('./07772.png').convert('RGB')
         # mask = np.asarray(mask).copy()
         # 随便选一个，就只能在这些里面选

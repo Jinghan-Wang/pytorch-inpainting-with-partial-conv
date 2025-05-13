@@ -11,12 +11,18 @@ import numpy as np
 from torchvision.utils import make_grid,save_image
 from utils import denormalize
 
+
+# img = Image.open('./data/places365_standard/val2/field-cultivated/Slice_3.png')
+# gray_img = img.convert('L')
+# gray_img.save('./data/places365_standard/val2/field-cultivated/Slice_3_gray.jpg')
+# gray_img.show()
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--batch_size',type=int,default=8)
 parser.add_argument('--pretrained_root',type=str,
-    default='./weights/checkpoint_mask_lightest_16.8.pth',
+    default='./weights/checkpoint_mask_35.5.pth',
     help='the root of pretrained weights')
-parser.add_argument('--dataset',type=str,default='mask_lightest',
+parser.add_argument('--dataset',type=str,default='mask',
     help='the mask dataset choose')
 opt = parser.parse_args()
 
@@ -54,7 +60,7 @@ pconvnet.eval()
 # mask_img,mask,y_true = zip(*[val_dataset[begin + i] for i in range(opt.batch_size)])
 mask_img,mask,y_true = zip(*[val_dataset[i] for i in range(opt.batch_size)])
 mask_img = torch.stack(mask_img).cuda()
-mask = torch.stack(mask).cuda() # 这个是在最高维堆叠，(3,256,256)变成(6,3,256,256)
+mask = torch.stack(mask).cuda()
 y_true = torch.stack(y_true).cuda()
 start = time.time()
 with torch.no_grad():
@@ -62,13 +68,17 @@ with torch.no_grad():
 print(f'time elapsed: {((time.time() - start) * 1000.):5.2f}ms')
 y_pred = y_pred.cuda()
 y_comp = mask * mask_img + (1 - mask) * y_pred
+
 #print(mask[0].cpu())
 img_grid = make_grid(
         torch.cat((denormalize(mask_img,torch.device('cuda')),
-            denormalize(y_true,torch.device('cuda')),denormalize(y_pred,torch.device('cuda')),
-    denormalize(y_comp,torch.device('cuda')),mask),dim=0))
+                   denormalize(y_true,torch.device('cuda')),
+                   denormalize(y_pred,torch.device('cuda')),
+                   denormalize(y_comp,torch.device('cuda')),
+                   mask),
+                   dim=0))
 # img_grid = make_grid(torch.cat((mask_img,y_true,y_pred,y_comp,mask),dim=0))
-save_image(img_grid,'./output/result.png')
+save_image(img_grid, 'output/BSAMASKGray.png')
 
 # y_pred = transforms.ToPILImage()(denormalize(y_pred,torch.device('cuda')).view(-1,256,256))
 # #y_pred = transforms.ToPILImage()(y_pred.view(-1,256,256))

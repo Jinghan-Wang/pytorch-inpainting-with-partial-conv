@@ -13,19 +13,18 @@ class Places2(Dataset):
         self.root_dir = r'./data/places365_standard/'
         if mask_dataset == 'mask':
             self.mask_dir = r'./data/mask/'
+            #self.mask_dir = r'./data/maskRing/'
         elif mask_dataset == 'mask_light':
             self.mask_dir = r'./data/mask_light/'
         elif mask_dataset == 'mask_lightest':
             self.mask_dir = r'./data/mask_lightest/'
-        # self.imgs_dir = self.root_dir + 'train.txt' if train else self.root_dir + 'val.txt'
-        self.imgs_dir = self.root_dir + 'train.txt' if train else self.root_dir + 'val2.txt'
+        self.imgs_dir = r'./data/val2/'
+        #self.imgs_dir = r'./data/pngRing/'
         self.img_height,self.img_width = (256,256)
         # 这两个文件里面有路径，其实就跟voc一样
-
-        with open(self.imgs_dir,'r',encoding='utf-8') as f:
-            self.imgs_path = f.readlines()
-            self.imgs_path = [self.root_dir + i.strip() for i in self.imgs_path]
-            #self.imgs_path = self.imgs_path[:100]
+        self.imgs_path = glob.glob(self.imgs_dir + '*.jpg')
+        #self.imgs_path = glob.glob(self.imgs_dir + '*.png')
+        self.imgs_path = sorted(self.imgs_path)
         self.masks_path = glob.glob(self.mask_dir + '*.png')
         self.masks_path = sorted(self.masks_path)
 

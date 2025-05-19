@@ -86,7 +86,7 @@ y_true = torch.stack(y_true).cuda()
 start = time.time()
 with torch.no_grad():
     y_pred = pconvnet(mask_img,mask)
-y = y_pred.cpu()  #这个是无用的代码，只是为了测试完整时间
+y = y_pred.cpu()  #这个是无用的代码，只是为了测试完整时间。
 print(f'time elapsed: {((time.time() - start) * 1000.):5.2f}ms')
 y_pred = y_pred.cuda()
 y_comp = mask * mask_img + (1 - mask) * y_pred

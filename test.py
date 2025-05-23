@@ -12,7 +12,6 @@ from torchvision.utils import make_grid,save_image
 from utils import denormalize
 import SimpleITK as sitk
 
-
 # img = Image.open('./data/places365_standard/val2/field-cultivated/Slice_3.png')
 # gray_img = img.convert('L')
 # gray_img.save('./data/places365_standard/val2/field-cultivated/Slice_3_gray.jpg')
